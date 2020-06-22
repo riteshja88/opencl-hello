@@ -13,14 +13,15 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <time.h>
 #define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #include <CL/cl.h>
 
-void rot13(char *buf)
+void rot13(char *buf,int len)
 {
     int index=0;
     char c = buf[index];
-    while (c != '\0') {
+    while (index < len) {
         if (c < 'A' || c > 'z' || (c > 'Z' && c < 'a')) {
             buf[index] = buf[index];
         } else {
@@ -34,12 +35,22 @@ void rot13(char *buf)
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+	size_t worksize = atol(argv[1]);
 
 	/* Host CPU */
-	char buf[] = "Hello, World!";
-	rot13(buf);	// scramble using the host CPU
-	puts(buf);	// Just to demonstrate the plaintext is destroyed/rot13'd
+	char buf[worksize];
+	//strcpy(buf,"hello world");
+	struct timespec start, end; 
+    // start timer. 
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	rot13(buf, worksize);	// scramble using the host CPU
+	clock_gettime(CLOCK_MONOTONIC, &end);
+	double time_taken;
+	time_taken = (end.tv_sec - start.tv_sec) * 1e9; 
+    time_taken = (time_taken + (end.tv_nsec - start.tv_nsec)) * 1e-9;
+	printf("cpu = %.9f\n", time_taken);
+	//puts(buf);	// Just to demonstrate the plaintext is destroyed/rot13'd
 
 	cl_int rc;
 	cl_platform_id platform;
@@ -78,7 +89,6 @@ int main() {
 		printf("clCreateCommandQueue() returned %d.\n", rc);
 		exit(1);
 	}
-
 
 	/* JIT compile */
 	int rot13_cl_fd = open("rot13.cl", O_RDONLY);
@@ -124,7 +134,6 @@ int main() {
 	/* Prepare Memory for GPU */
 	// Allocate memory for the kernel to work with
 	cl_mem mem1, mem2;
-	size_t worksize = strlen(buf);
 	mem1 = clCreateBuffer(context, CL_MEM_READ_ONLY, worksize, NULL, &rc); /* kernel input */
 	if(CL_SUCCESS != rc) {
 		printf("clCreateBuffer() returned %d.\n", rc);
@@ -146,28 +155,33 @@ int main() {
 	clSetKernelArg(k_rot13, 1, sizeof(mem2), &mem2);
 
 	// Target buffer just so we show we got the data from OpenCL
-	char buf2[sizeof buf];
+	char buf2[worksize];
 	buf2[0]='a';
 	buf2[worksize]=0;
 
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	#if 0
 	// Send input data to OpenCL (async, don't alter the buffer!)
 	rc = clEnqueueWriteBuffer(cq, mem1, CL_FALSE, 0, worksize, buf, 0, NULL, NULL);
 	if(CL_SUCCESS != rc) {
 		printf("clEnqueueWriteBuffer() returned %d.\n", rc);
 		exit(1);
 	}
+	#endif
 	// Perform the operation
 	rc = clEnqueueNDRangeKernel(cq, k_rot13, 1, NULL, &worksize, &worksize, 0, NULL, NULL);
 	if(CL_SUCCESS != rc) {
 		printf("clEnqueueNDRangeKernel() returned %d.\n", rc);
 		exit(1);
 	}
+	#if 0
 	// Read the result back into buf2
 	rc = clEnqueueReadBuffer(cq, mem2, CL_FALSE, 0, worksize, buf2, 0, NULL, NULL);
 	if(CL_SUCCESS != rc) {
 		printf("clEnqueueReadBuffer() returned %d.\n", rc);
 		exit(1);
 	}
+	#endif
 	// Await completion of all the above
 	rc = clFinish(cq);
 	if(CL_SUCCESS != rc) {
@@ -175,8 +189,14 @@ int main() {
 		exit(1);
 	}
 
+	clock_gettime(CLOCK_MONOTONIC, &end);
+
+	time_taken = (end.tv_sec - start.tv_sec) * 1e9; 
+	time_taken = (time_taken + (end.tv_nsec - start.tv_nsec)) * 1e-9;
+	printf("gpu = %.9f\n", time_taken);	
+
 	// Finally, output out happy message.
-	puts(buf2);
+	//puts(buf2);
 
 	return 0;
 }

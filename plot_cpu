@@ -1,0 +1,9 @@
+#!/usr/bin/gnuplot
+# Set the output to a png file
+set terminal png size 500,500
+# The file we'll write to
+set output 'cpu_time.png'
+# The graphic title
+set title 'cpu_time'
+#plot the graphic
+plot 'cpu_times' with linespoints
